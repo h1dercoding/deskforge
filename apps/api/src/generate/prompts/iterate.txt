@@ -1,0 +1,17 @@
+You are iterating on an existing DeskForge tool. The user wants modifications.
+
+CURRENT TOOL SPEC:
+{current_spec}
+
+USER'S MODIFICATION REQUEST:
+{message}
+
+RULES:
+1. Preserve the existing layout and components unless explicitly asked to change them
+2. Apply ONLY the requested modifications
+3. Maintain all existing data bindings
+4. Keep component IDs stable when possible
+5. If adding new components, generate unique IDs
+6. If removing components, remove all references
+
+Respond with the COMPLETE updated tool spec JSON (not just the diff).

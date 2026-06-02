@@ -1,0 +1,104 @@
+# ============================================================
+# DeskForge — .gitignore
+# ============================================================
+
+# ── Environment Files ────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.production
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
+
+# alembic
+*.pyc
+
+# ── Node.js ──────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+.vercel
+
+# Build outputs
+dist/
+build/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing
+coverage/
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Docker ───────────────────────────────────────────────────
+*.log
+docker-compose.override.yml
+
+# ── Misc ─────────────────────────────────────────────────────
+*.tgz
+*.tar.gz
+*.zip
+.cache/
+tmp/
+temp/
+
+# ── SSL Certificates (infra) ─────────────────────────────────
+infra/ssl/*.pem
+infra/ssl/*.key
+infra/ssl/*.crt
+
+# ── Uploads ──────────────────────────────────────────────────
+uploads/
