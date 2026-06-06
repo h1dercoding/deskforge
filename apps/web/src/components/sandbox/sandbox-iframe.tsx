@@ -19,6 +19,7 @@ export function SandboxIframe({ spec, onDataRequest, className }: SandboxIframeP
   return (
     <iframe
       ref={iframeRef}
+      data-sandbox="true"
       src={`${SANDBOX_ORIGIN}/index.html`}
       // Security: Only allow-scripts — NOT allow-same-origin.
       // allow-scripts + allow-same-origin would let the iframe remove its own sandbox.

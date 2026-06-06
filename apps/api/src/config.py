@@ -1,5 +1,4 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field
 from typing import List
 import json
 import sys
@@ -32,27 +31,71 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Security — JWT
+    JWT_SECRET_KEY: str = ""
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Security — Encryption
+    ENCRYPTION_KEY: str = ""
+
+    # Stripe
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_STARTER_PRICE_ID: str = ""
+    STRIPE_PRO_PRICE_ID: str = ""
+    STRIPE_ENTERPRISE_PRICE_ID: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
+
+    # Email
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAIL_FROM: str = "noreply@deskforge.io"
+
+    # File upload
+    MAX_UPLOAD_SIZE_MB: int = 50
+
+    # External DB connections
+    EXTERNAL_DB_POOL_SIZE: int = 5
+    EXTERNAL_DB_POOL_TIMEOUT: int = 30
+    EXTERNAL_DB_QUERY_TIMEOUT: int = 30
+    EXTERNAL_DB_MAX_ROWS: int = 10000
+
+    # Rate Limiting
+    RATE_LIMIT_API_PER_MINUTE: int = 100
+    RATE_LIMIT_GENERATE_PER_MINUTE: int = 10
+
     # JWT
     JWT_SECRET_KEY: str = ""
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     JWT_ALGORITHM: str = "HS256"
 
-    # Email
-    RESEND_API_KEY: str = ""
-    EMAIL_FROM: str = "noreply@deskforge.io"
-
     # Encryption
     ENCRYPTION_KEY: str = ""
 
-    # Logging
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "text"
-    SENTRY_DSN: str = ""
+    # Stripe
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_STARTER_PRICE_ID: str = ""
+    STRIPE_PRO_PRICE_ID: str = ""
+    STRIPE_ENTERPRISE_PRICE_ID: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
 
-    # Rate Limiting
-    RATE_LIMIT_API_PER_MINUTE: int = 100
-    RATE_LIMIT_GENERATE_PER_MINUTE: int = 10
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = ""
+
+    # Email (Resend)
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "noreply@deskforge.io"
 
     @property
     def cors_origins(self) -> List[str]:
@@ -91,13 +134,13 @@ def _validate_settings() -> None:
     if not settings.JWT_SECRET_KEY:
         errors.append("JWT_SECRET_KEY is not set. Please set a strong secret via the JWT_SECRET_KEY environment variable.")
     elif settings.JWT_SECRET_KEY in _INSECURE_DEFAULTS:
-        errors.append("JWT_SECRET_KEY is set to a known insecure default. Please set a unique secret.")
+        errors.append("JWT_SECRET_KEY is set to a known insecure default. Please generate a unique secret.")
 
     # APP_SECRET_KEY must be set and not be a default
     if not settings.APP_SECRET_KEY:
         errors.append("APP_SECRET_KEY is not set. Please set a strong secret via the APP_SECRET_KEY environment variable.")
     elif settings.APP_SECRET_KEY in _INSECURE_DEFAULTS:
-        errors.append("APP_SECRET_KEY is set to a known insecure default. Please set a unique secret.")
+        errors.append("APP_SECRET_KEY is set to a known insecure default. Please generate a unique secret.")
 
     if errors:
         import logging
@@ -108,7 +151,3 @@ def _validate_settings() -> None:
             sys.exit(1)
         else:
             logger.warning("Running in non-production mode with insecure configuration. DO NOT deploy to production.")
-
-
-# Run validation on import (fail fast)
-_validate_settings()

@@ -27,3 +27,4 @@ __all__ = [
     "PasswordReset",
     "RefreshToken",
 ]
+from src.models.csv_data import CsvData

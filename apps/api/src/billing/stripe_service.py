@@ -1,4 +1,5 @@
 """Stripe API integration for DeskForge billing."""
+import asyncio
 import logging
 import stripe
 from typing import Optional
@@ -9,8 +10,14 @@ from src.exceptions import StripeError
 
 logger = logging.getLogger("deskforge.billing.stripe")
 
-# Configure stripe
-stripe.api_key = settings.STRIPE_SECRET_KEY
+# Configure stripe lazily to avoid import-time issues
+
+
+def _get_stripe():
+    """Get configured stripe module."""
+    if not stripe.api_key:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+    return stripe
 
 
 def _get_price_id(plan: str) -> str:
@@ -36,9 +43,11 @@ async def create_checkout_session(
 ) -> str:
     """Create a Stripe Checkout session for plan upgrade.
 
-    Returns the checkout URL.
+    Returns the checkout URL. Uses asyncio.to_thread to avoid blocking
+    the async event loop with synchronous Stripe API calls.
     """
     try:
+        s = _get_stripe()
         price_id = _get_price_id(plan)
 
         session_params = {
@@ -69,11 +78,11 @@ async def create_checkout_session(
         elif customer_email:
             session_params["customer_email"] = customer_email
 
-        session = stripe.checkout.Session.create(**session_params)
+        session = await asyncio.to_thread(s.checkout.Session.create, **session_params)
         logger.info(f"Created checkout session for team {team_id}, plan {plan}")
         return session.url
 
-    except stripe.StripeError as e:
+    except s.StripeError as e:
         logger.error(f"Stripe checkout error: {e}")
         raise StripeError(str(e))
 
@@ -84,17 +93,19 @@ async def create_portal_session(
 ) -> str:
     """Create a Stripe Customer Portal session.
 
-    Returns the portal URL.
+    Returns the portal URL. Uses asyncio.to_thread to avoid blocking.
     """
     try:
-        session = stripe.billing_portal.Session.create(
+        s = _get_stripe()
+        session = await asyncio.to_thread(
+            s.billing_portal.Session.create,
             customer=stripe_customer_id,
             return_url=return_url,
         )
         logger.info(f"Created portal session for customer {stripe_customer_id}")
         return session.url
 
-    except stripe.StripeError as e:
+    except s.StripeError as e:
         logger.error(f"Stripe portal error: {e}")
         raise StripeError(str(e))
 
@@ -104,12 +115,13 @@ def construct_webhook_event(payload: bytes, sig_header: str) -> stripe.Event:
 
     Raises StripeError if signature verification fails.
     """
+    s = _get_stripe()
     try:
-        event = stripe.Webhook.construct_event(
+        event = s.Webhook.construct_event(
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
         return event
-    except stripe.SignatureVerificationError as e:
+    except s.SignatureVerificationError as e:
         logger.error(f"Stripe webhook signature verification failed: {e}")
         raise StripeError(f"Invalid webhook signature: {e}")
     except ValueError as e:
@@ -118,9 +130,10 @@ def construct_webhook_event(payload: bytes, sig_header: str) -> stripe.Event:
 
 
 async def get_subscription(subscription_id: str) -> Optional[stripe.Subscription]:
-    """Retrieve a Stripe subscription by ID."""
+    """Retrieve a Stripe subscription by ID. Uses asyncio.to_thread."""
     try:
-        return stripe.Subscription.retrieve(subscription_id)
-    except stripe.StripeError as e:
+        s = _get_stripe()
+        return await asyncio.to_thread(s.Subscription.retrieve, subscription_id)
+    except s.StripeError as e:
         logger.error(f"Failed to retrieve subscription {subscription_id}: {e}")
         return None

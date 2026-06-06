@@ -13,7 +13,7 @@ class Team(Base, UUIDMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
-    plan: Mapped[str] = mapped_column(String(20), nullable=False, default="free", server_default="'free'")
+    plan: Mapped[str] = mapped_column(String(20), nullable=False, default="free", server_default="free")
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     trial_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

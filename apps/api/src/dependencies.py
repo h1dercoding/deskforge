@@ -65,7 +65,7 @@ def require_role(minimum_role: str):
     To support multi-team in the future, accept a team_id path/query parameter
     and filter TeamMember by (user_id, team_id).
     """
-    role_hierarchy = {"viewer": 0, "editor": 1, "owner": 2}
+    role_hierarchy = {"viewer": 0, "submitter": 1, "editor": 2, "owner": 3}
 
     async def _require_role(
         current_user: User = Depends(get_current_user),

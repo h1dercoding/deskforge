@@ -112,11 +112,11 @@ async def update_visibility(
         existing_link = link_result.scalar_one_or_none()
 
         if existing_link is None:
-            # Generate a new share link using the tool's slug
-            # The tool already has a slug, just ensure a share link record exists
+            # Generate a share link with a unique token
+            token = secrets.token_urlsafe(32)
             new_link = ShareLink(
                 tool_id=tool_id,
-                token=tool.slug,
+                token=token,
                 is_active=True,
             )
             db.add(new_link)
@@ -167,10 +167,11 @@ async def regenerate_link(db: AsyncSession, tool_id: UUID, team_id: UUID) -> str
         .values(is_active=False)
     )
 
-    # Create new share link
+    # Create new share link with a unique token
+    token = secrets.token_urlsafe(32)
     new_link = ShareLink(
         tool_id=tool_id,
-        token=new_slug,
+        token=token,
         is_active=True,
     )
     db.add(new_link)

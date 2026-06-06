@@ -8,22 +8,49 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import event
+from sqlalchemy.pool import NullPool
+
+# Clean up any leftover test DB
+for f in ["./test.db", "./test.db-wal", "./test.db-shm"]:
+    if os.path.exists(f):
+        os.remove(f)
+
+# Override settings for testing — MUST be before any src imports
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+os.environ["REDIS_URL"] = "redis://localhost:6379/1"
+os.environ["APP_SECRET_KEY"] = "test-secret-key-123456789012345678901234567890"
+os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-123456789012345678901234567890"
+os.environ["ENCRYPTION_KEY"] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 from src.database import Base
-from src.config import settings
-from src.auth.jwt import create_access_token, create_refresh_token
 
-# Override settings for testing
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
-os.environ["REDIS_URL"] = "redis://localhost:6379/15"
-os.environ["ENCRYPTION_KEY"] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-not-for-production"
-os.environ["APP_SECRET_KEY"] = "test-app-secret-not-for-production"
-os.environ["APP_ENV"] = "development"
+# File-based SQLite engine with NullPool (no connection reuse)
+test_engine = create_async_engine(
+    "sqlite+aiosqlite:///./test.db",
+    poolclass=NullPool,
+    connect_args={"check_same_thread": False},
+)
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-test_session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+test_session_factory = async_sessionmaker(
+    test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+@event.listens_for(test_engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+# Monkey-patch jwt module to use test session factory
+import src.auth.jwt as _jwt_module
+_jwt_module.async_session_factory = test_session_factory
 
 
 @pytest.fixture(scope="session")
@@ -43,17 +70,22 @@ async def setup_database():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
-    # Clean up test DB file
-    if os.path.exists("./test.db"):
-        os.remove("./test.db")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clean_tables(setup_database):
+    """Delete all data before each test."""
+    async with test_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+    yield
 
 
 @pytest_asyncio.fixture
 async def db_session(setup_database) -> AsyncGenerator[AsyncSession, None]:
-    """Provide a test database session with rollback."""
+    """Provide a test database session."""
     async with test_session_factory() as session:
         yield session
-        await session.rollback()
 
 
 @pytest_asyncio.fixture
@@ -64,11 +96,14 @@ async def app(setup_database):
 
     application = create_app()
 
-    # Override DB dependency
     async def override_get_db():
         async with test_session_factory() as session:
             try:
                 yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
             finally:
                 await session.close()
 
@@ -167,6 +202,7 @@ async def test_editor_user(db_session: AsyncSession, test_team):
 
 def auth_headers(user) -> dict:
     """Generate valid JWT auth headers for a user."""
+    from src.auth.jwt import create_access_token
     token = create_access_token(user.id, user.email)
     return {"Authorization": f"Bearer {token}"}
 
@@ -211,3 +247,58 @@ async def test_tool(db_session: AsyncSession, test_user, test_team):
     await db_session.commit()
     await db_session.refresh(tool)
     return tool
+
+
+@pytest.fixture
+def mock_llm(monkeypatch):
+    """Mock OpenAI API calls for generation tests."""
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_spec = {
+        "version": 1,
+        "name": "Mock Tool",
+        "layout": {"type": "grid", "columns": 12, "gap": "16px"},
+        "components": [
+            {
+                "id": "comp-1",
+                "type": "dataTable",
+                "position": {"row": 0, "col": 0, "colSpan": 12},
+                "props": {"title": "Data Table"},
+            }
+        ],
+        "dataSources": [],
+        "theme": {},
+    }
+
+    class MockChoice:
+        def __init__(self, content):
+            self.message = MagicMock()
+            self.message.content = content
+            self.finish_reason = "stop"
+
+    class MockUsage:
+        def __init__(self):
+            self.prompt_tokens = 100
+            self.completion_tokens = 200
+            self.total_tokens = 300
+
+    class MockResponse:
+        def __init__(self, content):
+            self.choices = [MockChoice(content)]
+            self.usage = MockUsage()
+
+    class MockAsyncCompletions:
+        async def create(self, **kwargs):
+            content = json.dumps({"spec": mock_spec, "explanation": "Generated mock tool"})
+            return MockResponse(content)
+
+    class MockAsyncClient:
+        def __init__(self, **kwargs):
+            self.chat = MagicMock()
+            self.chat.completions = MockAsyncCompletions()
+
+    # Patch the OpenAI AsyncOpenAI class
+    monkeypatch.setattr("openai.AsyncOpenAI", MockAsyncClient)
+
+    return mock_spec

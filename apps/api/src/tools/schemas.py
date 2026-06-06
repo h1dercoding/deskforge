@@ -10,12 +10,21 @@ class CreateToolRequest(BaseModel):
     spec: dict[str, Any]
     data_source_id: Optional[UUID] = None
     description: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=100)
+    tags: Optional[list[str]] = None
 
 
 class UpdateToolRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = None
     theme: Optional[dict[str, Any]] = None
+    category: Optional[str] = Field(None, max_length=100)
+    tags: Optional[list[str]] = None
+
+
+class UpdateSpecRequest(BaseModel):
+    """Request to directly update a tool's spec JSON."""
+    spec: dict[str, Any]
 
 
 class ToolResponse(BaseModel):
@@ -31,6 +40,8 @@ class ToolResponse(BaseModel):
     visibility: str
     theme: dict[str, Any]
     status: str
+    category: Optional[str] = None
+    tags: Optional[list[str]] = None
     created_at: datetime
     updated_at: datetime
 

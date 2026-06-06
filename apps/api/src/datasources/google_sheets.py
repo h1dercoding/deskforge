@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 import httpx
 
-from src.datasources.oauth import refresh_google_token
+from src.auth.oauth import refresh_google_token
 from src.exceptions import GoogleSheetsError
 
 logger = logging.getLogger("deskforge.datasources.google_sheets")

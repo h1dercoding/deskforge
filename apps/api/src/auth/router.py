@@ -55,6 +55,7 @@ async def register(
 ):
     result = await register_user(db, body.email, body.password, body.name)
     set_refresh_cookie(response, result["refresh_token"])
+    from src.auth.password import get_password_requirements
     return {
         "data": {
             "user": UserResponse.model_validate(result["user"]),
@@ -62,6 +63,7 @@ async def register(
                 access_token=result["access_token"],
                 refresh_token=result["refresh_token"],
             ),
+            "password_requirements": get_password_requirements(),
         }
     }
 
@@ -140,7 +142,7 @@ async def logout(
 ):
     token = request.cookies.get("refresh_token")
     if token:
-        await logout_user(token)
+        await logout_user(token, db=db)
     response.delete_cookie("refresh_token", path="/")
     return {"data": {"success": True}}
 

@@ -8,6 +8,8 @@ interface UseToolsOptions {
   status?: string;
   page?: number;
   perPage?: number;
+  category?: string;
+  tags?: string;
 }
 
 export function useTools(options: UseToolsOptions = {}) {
@@ -24,6 +26,8 @@ export function useTools(options: UseToolsOptions = {}) {
       if (options.status) params.status = options.status;
       if (options.page) params.page = String(options.page);
       if (options.perPage) params.per_page = String(options.perPage);
+      if (options.category) params.category = options.category;
+      if (options.tags) params.tags = options.tags;
 
       const response = await api.get<ApiResponse<{ tools: Tool[] }>>('/tools', { params });
       setTools(response.data.tools);
@@ -34,7 +38,7 @@ export function useTools(options: UseToolsOptions = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [options.status, options.page, options.perPage]);
+  }, [options.status, options.page, options.perPage, options.category, options.tags]);
 
   useEffect(() => {
     fetchTools();

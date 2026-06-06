@@ -9,7 +9,7 @@ from src.exceptions import InvalidFileTypeError, FileTooLargeError
 logger = logging.getLogger("deskforge.datasources.csv")
 
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
-MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200 MB
 
 
 def detect_column_type(series: pd.Series) -> str:

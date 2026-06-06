@@ -14,12 +14,22 @@ naming_convention = {
 
 metadata = MetaData(naming_convention=naming_convention)
 
+# SQLite doesn't support pool_size/max_overflow; use NullPool for single connection
+_engine_kwargs = {
+    "echo": settings.DATABASE_ECHO,
+    "pool_pre_ping": True,
+}
+if "sqlite" in settings.DATABASE_URL:
+    from sqlalchemy.pool import NullPool
+    _engine_kwargs["poolclass"] = NullPool
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    _engine_kwargs["pool_size"] = settings.DATABASE_POOL_SIZE
+    _engine_kwargs["max_overflow"] = settings.DATABASE_MAX_OVERFLOW
+
 engine = create_async_engine(
     settings.DATABASE_URL,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    echo=settings.DATABASE_ECHO,
-    pool_pre_ping=True,
+    **_engine_kwargs,
 )
 
 async_session_factory = async_sessionmaker(

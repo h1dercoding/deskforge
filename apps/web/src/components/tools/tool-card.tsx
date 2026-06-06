@@ -67,16 +67,33 @@ export function ToolCard({ tool, onDelete }: ToolCardProps) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Badge className={getStatusColor(tool.status)} variant="outline">
-              {tool.status}
-            </Badge>
-            <Badge variant="outline">{tool.visibility}</Badge>
+        <div className="space-y-2">
+          {/* Category and status badges */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className={getStatusColor(tool.status)} variant="outline">
+                {tool.status}
+              </Badge>
+              <Badge variant="outline">{tool.visibility}</Badge>
+              {tool.category && (
+                <Badge variant="secondary">{tool.category}</Badge>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {formatDate(tool.updated_at)}
+            </span>
           </div>
-          <span className="text-xs text-muted-foreground">
-            {formatDate(tool.updated_at)}
-          </span>
+
+          {/* Tags */}
+          {tool.tags && tool.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {tool.tags.map((tag) => (
+                <Badge key={tag} variant="outline" className="text-xs text-muted-foreground">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

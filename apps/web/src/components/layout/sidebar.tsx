@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Wrench, Database, Users, Settings, Plus } from 'lucide-react';
+import { Wrench, Database, Users, Settings, Plus, ScrollText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 const navItems = [
   { label: 'Tools', href: '/', icon: Wrench },
   { label: 'Data Sources', href: '/datasources', icon: Database },
+  { label: 'Audit Log', href: '/audit', icon: ScrollText },
   { label: 'Team', href: '/team', icon: Users },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];

@@ -76,53 +76,74 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-async def store_refresh_token(user_id: UUID, token: str) -> None:
-    """Store refresh token hash in database."""
+async def store_refresh_token(user_id: UUID, token: str, db=None) -> None:
+    """Store refresh token hash in database.
+
+    If db session is provided, uses it directly (avoids opening a second
+    connection which can cause locking issues with SQLite in tests).
+    """
     token_hash = hash_token(token)
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
 
-    async with async_session_factory() as session:
-        rt = RefreshToken(
-            user_id=user_id,
-            token_hash=token_hash,
-            expires_at=expires_at,
-        )
-        session.add(rt)
-        await session.commit()
+    rt = RefreshToken(
+        user_id=user_id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+
+    if db is not None:
+        db.add(rt)
+        await db.flush()
+    else:
+        async with async_session_factory() as session:
+            session.add(rt)
+            await session.commit()
 
 
-async def revoke_refresh_token(token: str) -> None:
+async def revoke_refresh_token(token: str, db=None) -> None:
     """Revoke a refresh token."""
     token_hash = hash_token(token)
-    async with async_session_factory() as session:
-        await session.execute(
-            sa.update(RefreshToken)
-            .where(RefreshToken.token_hash == token_hash, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(timezone.utc))
-        )
-        await session.commit()
+    stmt = (
+        sa.update(RefreshToken)
+        .where(RefreshToken.token_hash == token_hash, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    if db is not None:
+        await db.execute(stmt)
+        await db.flush()
+    else:
+        async with async_session_factory() as session:
+            await session.execute(stmt)
+            await session.commit()
 
 
-async def revoke_all_refresh_tokens(user_id: UUID) -> None:
+async def revoke_all_refresh_tokens(user_id: UUID, db=None) -> None:
     """Revoke all refresh tokens for a user."""
-    async with async_session_factory() as session:
-        await session.execute(
-            sa.update(RefreshToken)
-            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(timezone.utc))
-        )
-        await session.commit()
+    stmt = (
+        sa.update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    if db is not None:
+        await db.execute(stmt)
+        await db.flush()
+    else:
+        async with async_session_factory() as session:
+            await session.execute(stmt)
+            await session.commit()
 
 
-async def is_refresh_token_valid(token: str) -> bool:
+async def is_refresh_token_valid(token: str, db=None) -> bool:
     """Check if a refresh token is valid (not revoked, not expired)."""
     token_hash = hash_token(token)
-    async with async_session_factory() as session:
-        result = await session.execute(
-            sa.select(RefreshToken).where(
-                RefreshToken.token_hash == token_hash,
-                RefreshToken.revoked_at.is_(None),
-                RefreshToken.expires_at > datetime.now(timezone.utc),
-            )
-        )
-        return result.scalar_one_or_none() is not None
+    query = sa.select(RefreshToken).where(
+        RefreshToken.token_hash == token_hash,
+        RefreshToken.revoked_at.is_(None),
+        RefreshToken.expires_at > datetime.now(timezone.utc),
+    )
+    if db is not None:
+        result = await db.execute(query)
+    else:
+        async with async_session_factory() as session:
+            result = await session.execute(query)
+    return result.scalar_one_or_none() is not None

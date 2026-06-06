@@ -10,7 +10,7 @@ class UUIDMixin:
     id: Mapped[UUIDType] = mapped_column(
         primary_key=True,
         default=uuid.uuid4,
-        server_default=func.uuid_generate_v4(),
+        # server_default removed for SQLite test compatibility; Python default handles it
     )
 
 

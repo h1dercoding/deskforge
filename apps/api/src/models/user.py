@@ -13,6 +13,6 @@ class User(Base, UUIDMixin, TimestampMixin):
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    auth_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="local", server_default="'local'")
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    auth_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="local", server_default="local")
     google_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)

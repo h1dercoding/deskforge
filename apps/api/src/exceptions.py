@@ -66,7 +66,7 @@ class InvalidFileTypeError(DeskForgeError):
 
 
 class FileTooLargeError(DeskForgeError):
-    def __init__(self, max_mb: int = 25):
+    def __init__(self, max_mb: int = 200):
         super().__init__(1006, "FILE_TOO_LARGE",
                          f"File exceeds maximum size of {max_mb} MB.",
                          400, [{"field": "file", "issue": f"Max size is {max_mb}MB"}])

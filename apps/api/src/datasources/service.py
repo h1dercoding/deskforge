@@ -42,20 +42,21 @@ async def create_csv_source(
 ) -> tuple[DataSource, list[dict], dict]:
     """Create a data source from CSV/Excel upload.
 
-    TODO: For production, CSV data should be stored in a dedicated table or file storage
-    (e.g., S3/local file) rather than in the JSONB config column. Storing large datasets
-    (potentially 100K+ rows per FR-030) as JSON in a single row causes:
-    - PostgreSQL bloat and slow queries
-    - JSONB size limits for very large datasets
-    - Inefficient pagination (entire dataset loaded into memory)
-    Consider migrating to a `csv_data` table with (source_id, row_idx, data) schema.
+    CSV data is stored in a dedicated `csv_data` table (one row per CSV row)
+    instead of as a JSON blob in the DataSource.config column. This enables:
+    - Efficient pagination via SQL OFFSET/LIMIT
+    - Scales to 100K+ rows without PostgreSQL bloat
+    - Proper indexing for filtered queries
     """
+    from src.models.csv_data import CsvData
+
     df, schema = parse_csv(file_content, filename)
     preview = get_preview(df, 20)
     records = df_to_records(df)
 
     name = filename.rsplit(".", 1)[0]
-    config = {"data": records, "filename": filename}
+    # Only store metadata in config — actual data goes to csv_data table
+    config = {"filename": filename}
 
     source = DataSource(
         team_id=team_id,
@@ -66,6 +67,19 @@ async def create_csv_source(
         row_count=len(records),
     )
     db.add(source)
+    await db.flush()  # Get source.id for the foreign key
+
+    # Store rows in the dedicated csv_data table
+    # Batch insert for performance (chunks of 1000)
+    BATCH_SIZE = 1000
+    for batch_start in range(0, len(records), BATCH_SIZE):
+        batch = records[batch_start:batch_start + BATCH_SIZE]
+        csv_rows = [
+            CsvData(source_id=source.id, row_idx=batch_start + i, data=row)
+            for i, row in enumerate(batch)
+        ]
+        db.add_all(csv_rows)
+
     await db.commit()
     await db.refresh(source)
 

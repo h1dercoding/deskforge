@@ -21,12 +21,22 @@ async def list_tools(
     status: str = "active",
     page: int = 1,
     per_page: int = 25,
+    category: Optional[str] = None,
+    tags: Optional[list[str]] = None,
 ) -> tuple[list[Tool], int]:
     """List tools for a team with pagination."""
     query = sa.select(Tool).where(Tool.team_id == team_id)
 
     if status != "all":
         query = query.where(Tool.status == status)
+
+    if category:
+        query = query.where(Tool.category == category)
+
+    if tags:
+        # Filter tools that contain ALL specified tags
+        for tag in tags:
+            query = query.where(sa.cast(Tool.tags, sa.String).contains(tag))
 
     # Get total count
     count_query = sa.select(sa.func.count()).select_from(query.subquery())
@@ -141,4 +151,45 @@ async def update_tool_spec(db: AsyncSession, tool: Tool, spec: dict, prompt: str
     await create_version(db, tool, user_id)
     await db.commit()
     await db.refresh(tool)
+    return tool
+
+
+async def clone_tool(db: AsyncSession, original: Tool, user_id: UUID, team_id: UUID) -> Tool:
+    """Clone/duplicate a tool.
+
+    Creates a copy with '(Copy)' appended to the name and a new slug.
+    """
+    import copy
+
+    # Check plan limits for the new tool
+    team_result = await db.execute(sa.select(Team).where(Team.id == team_id))
+    team = team_result.scalar_one_or_none()
+    if team:
+        await check_tool_limit(db, team)
+
+    cloned_name = f"{original.name} (Copy)"
+    slug = await generate_unique_slug(db, cloned_name)
+
+    tool = Tool(
+        team_id=team_id,
+        created_by=user_id,
+        data_source_id=original.data_source_id,
+        name=cloned_name,
+        slug=slug,
+        description=original.description,
+        prompt=original.prompt,
+        spec=copy.deepcopy(original.spec),
+        theme=copy.deepcopy(original.theme) if original.theme else {},
+        status="active",
+        visibility="private",
+    )
+    db.add(tool)
+    await db.flush()
+
+    # Create initial version
+    await create_version(db, tool, user_id)
+    await db.commit()
+    await db.refresh(tool)
+
+    logger.info(f"Tool cloned: {original.id} -> {tool.id} ({tool.name})")
     return tool

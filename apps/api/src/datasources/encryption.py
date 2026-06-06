@@ -1,4 +1,9 @@
-"""AES-256 Fernet encryption for data source credentials."""
+"""Fernet encryption for data source credentials.
+
+Fernet uses AES-128-CBC with HMAC-SHA256 for authenticated encryption.
+The key is derived from ENCRYPTION_KEY via SHA-256, producing a 32-byte
+key (of which Fernet uses the first 16 bytes for AES-128).
+"""
 import base64
 import hashlib
 from cryptography.fernet import Fernet, InvalidToken
@@ -23,13 +28,13 @@ def get_fernet() -> Fernet:
 
 
 def encrypt(plaintext: str) -> str:
-    """Encrypt a string using AES-256 (Fernet)."""
+    """Encrypt a string using Fernet (AES-128-CBC + HMAC-SHA256)."""
     f = get_fernet()
     return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
 
 
 def decrypt(ciphertext: str) -> str:
-    """Decrypt an AES-256 encrypted string."""
+    """Decrypt a Fernet-encrypted string."""
     f = get_fernet()
     try:
         return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")

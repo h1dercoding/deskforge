@@ -18,7 +18,7 @@ from src.datasources.service import (
 )
 from src.datasources.database_connector import test_connection, get_schema as get_db_schema
 from src.datasources.encryption import encrypt_dict
-from src.datasources.query_engine import execute_query
+from src.datasources.query_engine import execute_query, execute_aggregation
 from src.datasources.schemas import (
     DataSourceResponse,
     CSVUploadResponse,
@@ -134,7 +134,9 @@ async def google_sheets_callback(
     if not tokens:
         from src.exceptions import GoogleSheetsError
         raise GoogleSheetsError("Failed to exchange OAuth code")
-    return {"data": {"connected": True, "access_token": tokens.get("access_token")}}
+    # Store token server-side only — never return it to the client
+    # The access_token is stored encrypted in the data source config
+    return {"data": {"connected": True, "provider": "google_sheets"}}
 
 
 @router.post("/google-sheets", response_model=dict, status_code=201)
@@ -285,3 +287,33 @@ async def query_source(
             "total": result["total"],
         }
     }
+
+
+@router.post("/{source_id}/aggregate", response_model=dict)
+async def aggregate_source(
+    source_id: UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    auth_data: tuple = Depends(get_team_membership),
+):
+    """Execute aggregation queries on a data source.
+
+    Request body:
+    {
+        "aggregations": [
+            {"field": "status", "op": "count", "group_by": "category"},
+            {"field": "amount", "op": "sum"}
+        ]
+    }
+    """
+    current_user, membership = auth_data
+    aggregations = body.get("aggregations", [])
+
+    result = await execute_aggregation(
+        db=db,
+        data_source_id=source_id,
+        team_id=membership.team_id,
+        aggregations=aggregations,
+    )
+
+    return {"data": result}

@@ -1,7 +1,8 @@
-"""PostgreSQL/MySQL async database connector."""
+"""PostgreSQL/MySQL async database connector with connection pooling."""
 import asyncio
 import logging
 import time
+import re
 from typing import Optional
 from uuid import UUID
 
@@ -9,6 +10,95 @@ from src.datasources.encryption import decrypt_dict
 from src.exceptions import DatabaseConnectionError, DatabaseQueryError
 
 logger = logging.getLogger("deskforge.datasources.database")
+
+# ── Connection Pool Manager ──
+# Pools are keyed by (host, port, database, username) to reuse connections
+# to the same database across multiple queries.
+_pools: dict[str, object] = {}
+
+# Maximum rows returned per query
+MAX_ROWS = 10000
+
+# Query execution timeout in seconds
+QUERY_TIMEOUT = 30
+
+# Connection pool limits
+POOL_MIN_SIZE = 1
+POOL_MAX_SIZE = 10
+POOL_MAX_IDLE = 300  # 5 minutes idle before closing
+
+
+def _pool_key(config: dict) -> str:
+    """Generate a unique key for the connection pool."""
+    return f"{config.get('host')}:{config.get('port')}:{config.get('database')}:{config.get('username')}"
+
+
+def _validate_identifier(name: str) -> None:
+    """Validate that a string is a safe SQL identifier."""
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+        raise DatabaseQueryError(f"Invalid identifier: {name}")
+
+
+async def _get_pg_pool(config: dict):
+    """Get or create an asyncpg connection pool."""
+    import asyncpg
+
+    key = _pool_key(config)
+    pool = _pools.get(key)
+
+    if pool is None or pool._closed:
+        pool = await asyncpg.create_pool(
+            host=config["host"],
+            port=config["port"],
+            database=config["database"],
+            user=config["username"],
+            password=config["password"],
+            ssl="require" if config.get("ssl") else None,
+            min_size=POOL_MIN_SIZE,
+            max_size=POOL_MAX_SIZE,
+            max_inactive_connection_lifetime=POOL_MAX_IDLE,
+            command_timeout=QUERY_TIMEOUT,
+            timeout=10,
+        )
+        _pools[key] = pool
+        logger.info(f"Created connection pool for {config['host']}/{config['database']}")
+
+    return pool
+
+
+async def _get_mysql_pool(config: dict):
+    """Get or create an aiomysql connection pool."""
+    import aiomysql
+
+    key = _pool_key(config)
+    pool = _pools.get(key)
+
+    if pool is None or pool._closed:
+        pool = await aiomysql.create_pool(
+            host=config["host"],
+            port=config["port"],
+            db=config["database"],
+            user=config["username"],
+            password=config["password"],
+            minsize=POOL_MIN_SIZE,
+            maxsize=POOL_MAX_SIZE,
+            connect_timeout=10,
+        )
+        _pools[key] = pool
+        logger.info(f"Created MySQL connection pool for {config['host']}/{config['database']}")
+
+    return pool
+
+
+async def close_all_pools() -> None:
+    """Close all connection pools (call on shutdown)."""
+    for key, pool in list(_pools.items()):
+        try:
+            pool.close()
+            await pool.wait_closed()
+        except Exception as e:
+            logger.warning(f"Error closing pool {key}: {e}")
+    _pools.clear()
 
 
 async def test_connection(config: dict) -> dict:
@@ -94,17 +184,8 @@ async def get_schema(config: dict) -> dict:
 
 async def _get_postgresql_schema(config: dict) -> dict:
     """Get PostgreSQL schema."""
-    import asyncpg
-    conn = await asyncpg.connect(
-        host=config["host"],
-        port=config["port"],
-        database=config["database"],
-        user=config["username"],
-        password=config["password"],
-        ssl="require" if config.get("ssl") else None,
-        timeout=10,
-    )
-    try:
+    pool = await _get_pg_pool(config)
+    async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
@@ -122,22 +203,12 @@ async def _get_postgresql_schema(config: dict) -> dict:
                 "nullable": row["is_nullable"] == "YES",
             })
         return {"tables": tables, "columns": tables}
-    finally:
-        await conn.close()
 
 
 async def _get_mysql_schema(config: dict) -> dict:
     """Get MySQL schema."""
-    import aiomysql
-    conn = await aiomysql.connect(
-        host=config["host"],
-        port=config["port"],
-        db=config["database"],
-        user=config["username"],
-        password=config["password"],
-        connect_timeout=10,
-    )
-    try:
+    pool = await _get_mysql_pool(config)
+    async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
                 SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
@@ -158,21 +229,39 @@ async def _get_mysql_schema(config: dict) -> dict:
                 "nullable": row[3] == "YES",
             })
         return {"tables": tables, "columns": tables}
-    finally:
-        conn.close()
 
 
 async def execute_query(
     config: dict,
     table: str,
     columns: Optional[list[str]] = None,
-    where: Optional[str] = None,
+    where=None,
+    where_params: Optional[dict] = None,
     order_by: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    readonly: bool = False,
 ) -> tuple[list[dict], int]:
-    """Execute a read query against a database."""
+    """Execute a read query against a database with connection pooling.
+
+    Enforces:
+    - Input validation on identifiers
+    - Query timeout (QUERY_TIMEOUT seconds)
+    - Maximum row limit (MAX_ROWS)
+    - Read-only transaction mode when readonly=True
+    """
     db_type = config.get("type")
+
+    # Validate identifiers
+    _validate_identifier(table)
+    if columns:
+        for col in columns:
+            _validate_identifier(col)
+
+    # Enforce max row limit
+    limit = min(limit, MAX_ROWS)
+
+    # Build column list
     cols = ", ".join(columns) if columns else "*"
     query = f"SELECT {cols} FROM {table}"
     count_query = f"SELECT COUNT(*) FROM {table}"
@@ -186,9 +275,9 @@ async def execute_query(
 
     try:
         if db_type == "postgresql":
-            return await _pg_query(config, query, count_query)
+            return await _pg_query(config, query, count_query, where_params, readonly)
         elif db_type == "mysql":
-            return await _mysql_query(config, query, count_query)
+            return await _mysql_query(config, query, count_query, where_params, readonly)
         else:
             raise DatabaseQueryError(f"Unsupported type: {db_type}")
     except DatabaseQueryError:
@@ -197,46 +286,101 @@ async def execute_query(
         raise DatabaseQueryError(str(e))
 
 
-async def _pg_query(config: dict, query: str, count_query: str) -> tuple[list[dict], int]:
+async def _pg_query(
+    config: dict,
+    query: str,
+    count_query: str,
+    where_params: Optional[dict] = None,
+    readonly: bool = False,
+) -> tuple[list[dict], int]:
+    """Execute PostgreSQL query using connection pool."""
     import asyncpg
-    conn = await asyncpg.connect(
-        host=config["host"],
-        port=config["port"],
-        database=config["database"],
-        user=config["username"],
-        password=config["password"],
-        ssl="require" if config.get("ssl") else None,
-        timeout=10,
-    )
-    try:
-        rows = await conn.fetch(query)
-        count = await conn.fetchval(count_query)
+
+    pool = await _get_pg_pool(config)
+    async with pool.acquire() as conn:
+        # Enforce read-only transaction if requested
+        if readonly:
+            await conn.execute("SET TRANSACTION READ ONLY")
+
+        # Set statement timeout
+        await conn.execute(f"SET statement_timeout = '{QUERY_TIMEOUT}s'")
+
+        # Execute with timeout
+        try:
+            if where_params:
+                # Convert named params to positional for asyncpg
+                # asyncpg uses $1, $2, etc. but we use :p0, :p1 from SQLAlchemy text()
+                # We need to pass params separately
+                rows = await asyncio.wait_for(
+                    conn.fetch(query, *where_params.values()),
+                    timeout=QUERY_TIMEOUT,
+                )
+                count = await asyncio.wait_for(
+                    conn.fetchval(count_query, *where_params.values()),
+                    timeout=QUERY_TIMEOUT,
+                )
+            else:
+                rows = await asyncio.wait_for(
+                    conn.fetch(query),
+                    timeout=QUERY_TIMEOUT,
+                )
+                count = await asyncio.wait_for(
+                    conn.fetchval(count_query),
+                    timeout=QUERY_TIMEOUT,
+                )
+        except asyncio.TimeoutError:
+            raise DatabaseQueryError(f"Query timed out after {QUERY_TIMEOUT}s")
+
         results = [dict(row) for row in rows]
         return results, count
-    finally:
-        await conn.close()
 
 
-async def _mysql_query(config: dict, query: str, count_query: str) -> tuple[list[dict], int]:
+async def _mysql_query(
+    config: dict,
+    query: str,
+    count_query: str,
+    where_params: Optional[dict] = None,
+    readonly: bool = False,
+) -> tuple[list[dict], int]:
+    """Execute MySQL query using connection pool."""
     import aiomysql
-    conn = await aiomysql.connect(
-        host=config["host"],
-        port=config["port"],
-        db=config["database"],
-        user=config["username"],
-        password=config["password"],
-        connect_timeout=10,
-    )
-    try:
+
+    pool = await _get_mysql_pool(config)
+    async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(query)
-            rows = await cur.fetchall()
-            await cur.execute(count_query)
-            count = (await cur.fetchone())[count_value_key(count_query)]
+            # Enforce read-only if requested
+            if readonly:
+                await cur.execute("SET SESSION TRANSACTION READ ONLY")
+
+            # Set query timeout
+            await cur.execute(f"SET SESSION MAX_EXECUTION_TIME = {QUERY_TIMEOUT * 1000}")
+
+            try:
+                if where_params:
+                    await asyncio.wait_for(
+                        cur.execute(query, list(where_params.values())),
+                        timeout=QUERY_TIMEOUT,
+                    )
+                else:
+                    await asyncio.wait_for(
+                        cur.execute(query),
+                        timeout=QUERY_TIMEOUT,
+                    )
+                rows = await cur.fetchall()
+
+                if where_params:
+                    await asyncio.wait_for(
+                        cur.execute(count_query, list(where_params.values())),
+                        timeout=QUERY_TIMEOUT,
+                    )
+                else:
+                    await asyncio.wait_for(
+                        cur.execute(count_query),
+                        timeout=QUERY_TIMEOUT,
+                    )
+                count_result = await cur.fetchone()
+                count = count_result.get("COUNT(*)", 0) if count_result else 0
+            except asyncio.TimeoutError:
+                raise DatabaseQueryError(f"Query timed out after {QUERY_TIMEOUT}s")
+
         return rows, count
-    finally:
-        conn.close()
-
-
-def count_value_key(q: str) -> str:
-    return "COUNT(*)"

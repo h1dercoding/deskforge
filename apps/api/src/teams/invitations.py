@@ -52,8 +52,8 @@ async def create_invitation(
             sa.select(sa.func.count()).select_from(TeamMember).where(TeamMember.team_id == team.id)
         )
         count = member_count.scalar()
-        if count >= 3:
-            raise PlanLimitError("team members", 3, "free")
+        if count >= 10:
+            raise PlanLimitError("team members", 10, "free")
 
     token = secrets.token_urlsafe(32)
     invitation = TeamInvitation(

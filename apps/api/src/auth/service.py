@@ -1,5 +1,6 @@
 import secrets
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -34,6 +35,53 @@ logger = logging.getLogger("deskforge.auth")
 
 VERIFICATION_TOKEN_EXPIRY_HOURS = 24
 PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1
+
+# ── Brute-force protection ──
+# Track failed login attempts per email to prevent credential stuffing.
+# After MAX_FAILED_ATTEMPTS failures, the account is locked for LOCKOUT_DURATION seconds.
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_DURATION = 900  # 15 minutes
+_failed_attempts: dict[str, dict] = {}  # email -> {"count": int, "locked_until": float}
+
+
+def _check_lockout(email: str) -> None:
+    """Check if an account is locked due to too many failed attempts."""
+    entry = _failed_attempts.get(email)
+    if not entry:
+        return
+
+    now = time.monotonic()
+
+    # Reset if lockout period has passed
+    if entry.get("locked_until") and now > entry["locked_until"]:
+        _failed_attempts.pop(email, None)
+        return
+
+    # Check if currently locked
+    if entry.get("locked_until") and now <= entry["locked_until"]:
+        remaining = int(entry["locked_until"] - now)
+        raise AuthenticationError(
+            f"Account temporarily locked due to too many failed attempts. "
+            f"Try again in {remaining} seconds.",
+            1103,
+        )
+
+
+def _record_failed_attempt(email: str) -> None:
+    """Record a failed login attempt and lock account if threshold exceeded."""
+    entry = _failed_attempts.get(email, {"count": 0, "locked_until": None})
+    entry["count"] += 1
+
+    if entry["count"] >= MAX_FAILED_ATTEMPTS:
+        entry["locked_until"] = time.monotonic() + LOCKOUT_DURATION
+        logger.warning(f"Account locked for {email} after {MAX_FAILED_ATTEMPTS} failed attempts")
+
+    _failed_attempts[email] = entry
+
+
+def _clear_failed_attempts(email: str) -> None:
+    """Clear failed attempt tracking on successful login."""
+    _failed_attempts.pop(email, None)
 
 
 async def register_user(db: AsyncSession, email: str, password: str, name: str) -> dict:
@@ -80,7 +128,7 @@ async def register_user(db: AsyncSession, email: str, password: str, name: str) 
 
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)
-    await store_refresh_token(user.id, refresh_token)
+    await store_refresh_token(user.id, refresh_token, db=db)
 
     return {
         "user": user,
@@ -90,21 +138,29 @@ async def register_user(db: AsyncSession, email: str, password: str, name: str) 
 
 
 async def login_user(db: AsyncSession, email: str, password: str) -> dict:
-    """Authenticate user with email/password."""
+    """Authenticate user with email/password with brute-force protection."""
     email = email.lower().strip()
+
+    # Check for account lockout
+    _check_lockout(email)
 
     result = await db.execute(sa.select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if user is None or user.password_hash is None:
+        _record_failed_attempt(email)
         raise InvalidCredentialsError()
 
     if not verify_password(password, user.password_hash):
+        _record_failed_attempt(email)
         raise InvalidCredentialsError()
+
+    # Successful login — clear failed attempts
+    _clear_failed_attempts(email)
 
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)
-    await store_refresh_token(user.id, refresh_token)
+    await store_refresh_token(user.id, refresh_token, db=db)
 
     return {
         "user": user,
@@ -157,7 +213,7 @@ async def login_with_google(db: AsyncSession, id_token: str) -> dict:
 
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)
-    await store_refresh_token(user.id, refresh_token)
+    await store_refresh_token(user.id, refresh_token, db=db)
 
     return {
         "user": user,
@@ -168,7 +224,7 @@ async def login_with_google(db: AsyncSession, id_token: str) -> dict:
 
 async def refresh_access_token(db: AsyncSession, refresh_token_str: str) -> dict:
     """Refresh an access token using a valid refresh token."""
-    if not await is_refresh_token_valid(refresh_token_str):
+    if not await is_refresh_token_valid(refresh_token_str, db=db):
         raise AuthenticationError("Invalid or expired refresh token.", 1101)
 
     from src.auth.jwt import decode_refresh_token
@@ -184,10 +240,10 @@ async def refresh_access_token(db: AsyncSession, refresh_token_str: str) -> dict
 
     new_access_token = create_access_token(user.id, user.email)
     new_refresh_token = create_refresh_token(user.id)
-    await store_refresh_token(user.id, new_refresh_token)
+    await store_refresh_token(user.id, new_refresh_token, db=db)
 
     # Revoke old refresh token
-    await revoke_refresh_token(refresh_token_str)
+    await revoke_refresh_token(refresh_token_str, db=db)
 
     return {
         "access_token": new_access_token,
@@ -195,9 +251,9 @@ async def refresh_access_token(db: AsyncSession, refresh_token_str: str) -> dict
     }
 
 
-async def logout_user(refresh_token_str: str) -> None:
+async def logout_user(refresh_token_str: str, db=None) -> None:
     """Revoke a refresh token (logout)."""
-    await revoke_refresh_token(refresh_token_str)
+    await revoke_refresh_token(refresh_token_str, db=db)
 
 
 async def verify_email(db: AsyncSession, token: str) -> None:
@@ -299,7 +355,7 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
     user.password_hash = hash_password(new_password)
     await db.commit()
 
-    await revoke_all_refresh_tokens(user.id)
+    await revoke_all_refresh_tokens(user.id, db=db)
 
 
 async def update_profile(db: AsyncSession, user: User, **kwargs) -> User:
@@ -314,6 +370,19 @@ async def update_profile(db: AsyncSession, user: User, **kwargs) -> User:
                 raise EmailAlreadyExistsError()
             user.email = new_email
             user.email_verified = False
+            # Send re-verification email
+            try:
+                token = secrets.token_urlsafe(32)
+                verification = EmailVerification(
+                    user_id=user.id,
+                    token=token,
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=VERIFICATION_TOKEN_EXPIRY_HOURS),
+                )
+                db.add(verification)
+                await db.flush()
+                await send_verification_email(email=new_email, name=user.name, token=token)
+            except Exception as e:
+                logger.warning(f"Failed to send re-verification email: {e}")
     if "avatar_url" in kwargs:
         user.avatar_url = kwargs["avatar_url"]
 

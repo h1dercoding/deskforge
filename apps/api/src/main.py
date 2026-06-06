@@ -6,6 +6,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError as PydanticValidationError
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from src.config import settings
 from src.database import engine
@@ -25,11 +27,45 @@ from src.generate.router import router as generate_router, templates_router
 from src.datasources.router import router as datasources_router
 from src.billing.router import router as billing_router
 from src.sharing.router import router as sharing_router
+from src.audit.router import router as audit_router
 
 logger = logging.getLogger("deskforge")
 
 # Track startup time for health endpoint
 _startup_time: float = 0.0
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers including Content-Security-Policy."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+
+        # Content-Security-Policy - restrict resource loading
+        csp_directives = [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Next.js needs unsafe-inline/eval
+            "style-src 'self' 'unsafe-inline'",  # Tailwind needs unsafe-inline
+            "img-src 'self' data: https:",
+            "font-src 'self' data:",
+            "connect-src 'self' https://api.resend.com https://oauth2.googleapis.com",
+            "frame-src 'self'",  # For sandbox iframes
+            "frame-ancestors 'self'",
+            "base-uri 'self'",
+            "form-action 'self'",
+        ]
+        response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+
+        # Other security headers (defense-in-depth, in addition to nginx)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+
+        if settings.is_production:
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+
+        return response
 
 
 @asynccontextmanager
@@ -38,12 +74,14 @@ async def lifespan(app: FastAPI):
     global _startup_time
     _startup_time = time.monotonic()
 
-    # Validate critical configuration at startup
+    # Validate critical configuration at startup (only once, not on import)
     from src.config import _validate_settings
     _validate_settings()
 
     logger.info("Starting DeskForge API", extra={"env": settings.APP_ENV})
-    logger.info("Database engine created", extra={"url": settings.DATABASE_URL.split("@")[-1]})
+    # Log only host portion of DB URL for security
+    db_host = settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else "unknown"
+    logger.info("Database engine created", extra={"url": db_host})
 
     # Verify Redis connection
     try:
@@ -56,6 +94,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down DeskForge API")
+    from src.datasources.database_connector import close_all_pools
+    await close_all_pools()
     await engine.dispose()
     await close_redis()
 
@@ -72,20 +112,18 @@ def create_app() -> FastAPI:
     )
 
     # ── CORS ──
-    # Security: CSRF protection relies on:
-    # 1. SameSite=lax cookies for refresh tokens (set in auth/router.py)
-    # 2. CORS restricts cross-origin requests to allowed origins
-    # 3. Access tokens are sent via Authorization header (not cookies),
-    #    making them immune to CSRF by design (NFR-027)
-    # 4. Refresh token rotation ensures stolen tokens have limited lifetime
+    # Restrict methods and headers to only what's needed
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-Id"],
         expose_headers=["X-Request-Id", "X-Response-Time", "X-RateLimit-Limit"],
     )
+
+    # ── Security Headers (CSP, etc.) ──
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # ── Custom Middleware (order matters: last added = first executed) ──
     app.add_middleware(RateLimitMiddleware)
@@ -108,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(datasources_router, prefix=api_prefix)
     app.include_router(billing_router, prefix=api_prefix)
     app.include_router(sharing_router, prefix=api_prefix)
+    app.include_router(audit_router, prefix=api_prefix)
 
     # ── Health Endpoints ──
 
@@ -131,14 +170,14 @@ def create_app() -> FastAPI:
             from sqlalchemy import text
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-        except Exception as e:
-            checks["db"] = f"error: {str(e)[:100]}"
+        except Exception:
+            checks["db"] = "error"
 
         # Check Redis
         try:
             await redis_client.ping()
-        except Exception as e:
-            checks["redis"] = f"error: {str(e)[:100]}"
+        except Exception:
+            checks["redis"] = "error"
 
         all_ok = all(v == "ok" for v in checks.values())
         return {

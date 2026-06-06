@@ -1,29 +1,31 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { api } from "@/lib/api";
-import type { TeamMember } from "@/types";
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { api } from '@/lib/api';
+import type { TeamMember, PLAN_LIMITS } from '@/types';
+
+const FREE_PLAN_MEMBER_LIMIT = 10;
 
 export default function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
-  const [teamName, setTeamName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("editor");
+  const [teamName, setTeamName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('editor');
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([
-      api.get("/teams/current"),
-      api.get("/teams/current/members"),
+      api.get('/teams/current'),
+      api.get('/teams/current/members'),
     ]).then(([teamRes, membersRes]) => {
       setTeamName(teamRes.data.team.name);
       setMembers(membersRes.data.members || []);
@@ -33,23 +35,26 @@ export default function TeamPage() {
 
   const handleInvite = async () => {
     try {
-      await api.post("/teams/current/invites", { email: inviteEmail, role: inviteRole });
+      await api.post('/teams/current/invites', { email: inviteEmail, role: inviteRole });
       setInviteOpen(false);
-      setInviteEmail("");
-      const res = await api.get("/teams/current/members");
+      setInviteEmail('');
+      const res = await api.get('/teams/current/members');
       setMembers(res.data.members || []);
     } catch (e) {
-      console.error("Invite failed:", e);
+      console.error('Invite failed:', e);
     }
   };
 
   const handleRemove = async (userId: string) => {
-    if (!confirm("Remove this member?")) return;
+    if (!confirm('Remove this member?')) return;
     await api.delete(`/teams/current/members/${userId}`);
     setMembers(members.filter((m) => m.user_id !== userId));
   };
 
   if (loading) return <p className="text-gray-400">Loading...</p>;
+
+  const seatsUsed = members.length;
+  const seatsRemaining = FREE_PLAN_MEMBER_LIMIT - seatsUsed;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -61,27 +66,40 @@ export default function TeamPage() {
         </CardHeader>
         <CardContent className="flex gap-3">
           <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} />
-          <Button onClick={() => api.patch("/teams/current", { name: teamName })}>Save</Button>
+          <Button onClick={() => api.patch('/teams/current', { name: teamName })}>Save</Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Members ({members.length})</CardTitle>
+          <div>
+            <CardTitle>Members ({members.length})</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {seatsRemaining > 0
+                ? `${seatsRemaining} of ${FREE_PLAN_MEMBER_LIMIT} seats remaining`
+                : 'All seats are used. Upgrade to add more members.'}
+            </p>
+          </div>
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
             <DialogTrigger asChild>
-              <Button size="sm">Invite Member</Button>
+              <Button size="sm" disabled={seatsRemaining <= 0}>
+                Invite Member
+              </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Invite Team Member</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  {seatsRemaining} of {FREE_PLAN_MEMBER_LIMIT} seats available
+                </p>
                 <Input placeholder="Email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
                 <Select value={inviteRole} onValueChange={setInviteRole}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="editor">Editor</SelectItem>
+                    <SelectItem value="submitter">Submitter</SelectItem>
                     <SelectItem value="viewer">Viewer</SelectItem>
                   </SelectContent>
                 </Select>
@@ -105,7 +123,7 @@ export default function TeamPage() {
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar className="h-8 w-8">
-                        <AvatarFallback>{m.user_name?.charAt(0)?.toUpperCase() || "?"}</AvatarFallback>
+                        <AvatarFallback>{m.user_name?.charAt(0)?.toUpperCase() || '?'}</AvatarFallback>
                       </Avatar>
                       <div>
                         <p className="font-medium">{m.user_name || m.user_email}</p>
@@ -113,9 +131,9 @@ export default function TeamPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell><Badge variant={m.role === "owner" ? "default" : "secondary"}>{m.role}</Badge></TableCell>
+                  <TableCell><Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{m.role}</Badge></TableCell>
                   <TableCell>
-                    {m.role !== "owner" && (
+                    {m.role !== 'owner' && (
                       <Button variant="ghost" size="sm" onClick={() => handleRemove(m.user_id)}>Remove</Button>
                     )}
                   </TableCell>

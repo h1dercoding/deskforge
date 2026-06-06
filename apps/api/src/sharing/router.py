@@ -77,9 +77,13 @@ async def update_sharing_endpoint(
     tool_id: UUID,
     body: UpdateVisibilityRequest,
     db: AsyncSession = Depends(get_db),
-    auth_data: tuple = Depends(require_role("owner")),
+    auth_data: tuple = Depends(require_role("editor")),
 ):
-    """Update tool visibility (public/private)."""
+    """Update tool visibility (public/private).
+
+    Editors and owners can change sharing settings. Previously this was
+    owner-only which was too restrictive for teams where editors create tools.
+    """
     current_user, membership = auth_data
 
     if body.visibility not in ("public", "private"):
@@ -101,7 +105,7 @@ async def update_sharing_endpoint(
 async def regenerate_link_endpoint(
     tool_id: UUID,
     db: AsyncSession = Depends(get_db),
-    auth_data: tuple = Depends(require_role("owner")),
+    auth_data: tuple = Depends(require_role("editor")),
 ):
     """Regenerate the share URL for a tool."""
     current_user, membership = auth_data

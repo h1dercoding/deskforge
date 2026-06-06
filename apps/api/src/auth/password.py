@@ -3,7 +3,7 @@ import bcrypt
 
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_PATTERN = re.compile(
-    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{8,}$"
+    r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$'
 )
 
 
@@ -24,3 +24,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def validate_password_strength(password: str) -> bool:
     """Check if password meets complexity requirements."""
     return bool(PASSWORD_PATTERN.match(password))
+
+
+def get_password_requirements() -> dict:
+    """Return password complexity requirements for API responses."""
+    return {
+        "min_length": PASSWORD_MIN_LENGTH,
+        "require_uppercase": True,
+        "require_lowercase": True,
+        "require_digit": True,
+        "require_special_character": True,
+        "description": (
+            "Password must be at least 8 characters and include "
+            "1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character."
+        ),
+    }

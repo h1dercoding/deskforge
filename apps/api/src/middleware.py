@@ -8,6 +8,7 @@ from starlette.responses import Response
 
 from src.redis_client import redis_client
 from src.config import settings
+from src.exceptions import RateLimitError
 
 logger = logging.getLogger("deskforge.middleware")
 
@@ -87,7 +88,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             current = results[0]
 
             if current > limit:
-                from src.exceptions import RateLimitError
                 raise RateLimitError(
                     f"Rate limit exceeded. Maximum {limit} requests per minute.",
                     retry_after=60,

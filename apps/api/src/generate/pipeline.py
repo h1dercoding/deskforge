@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 from uuid import UUID
 
@@ -19,9 +20,14 @@ import sqlalchemy as sa
 
 logger = logging.getLogger("deskforge.generate.pipeline")
 
+# Use pathlib for reliable path resolution regardless of working directory
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
 
 async def load_system_prompt() -> str:
-    with open("src/generate/prompts/system.txt", "r") as f:
+    """Load the system prompt from the prompts directory."""
+    prompt_path = _PROMPTS_DIR / "system.txt"
+    with open(prompt_path, "r") as f:
         return f.read()
 
 
@@ -104,7 +110,7 @@ async def run_generation_pipeline(
         yield _sse_event("error", {"message": "Failed to generate a valid tool specification. Please try again."})
         return
 
-    # Retry once if validation fails
+    # Validate with one retry on failure
     is_valid, issues = validate_tool_spec(spec)
     if not is_valid:
         logger.info(f"First validation failed: {issues}. Retrying with error context.")

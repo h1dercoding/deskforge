@@ -1,7 +1,9 @@
 import json
 import logging
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from uuid import UUID
+from fastapi import APIRouter, Depends, Header
+from fastapi.responses import StreamingResponse, JSONResponse
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dependencies import get_db, get_current_user, require_role, require_verified_email
@@ -22,6 +24,7 @@ router = APIRouter(prefix="/generate", tags=["Generation"])
 @router.post("")
 async def generate_tool(
     body: GenerateRequest,
+    x_debug: Optional[str] = Header(None, alias="X-Debug"),
     db: AsyncSession = Depends(get_db),
     auth_data: tuple = Depends(require_role("editor")),
     _verified: User = Depends(require_verified_email),
@@ -34,6 +37,29 @@ async def generate_tool(
         if template is None:
             raise TemplateNotFoundError()
         template_context = template
+
+    # Debug mode: return raw output instead of streaming
+    if x_debug:
+        from src.generate.pipeline import run_generation_debug
+        debug_result = await run_generation_debug(
+            db=db,
+            prompt=body.prompt,
+            user_id=current_user.id,
+            team_id=membership.team_id,
+            data_source_id=body.data_source_id,
+            template_context=template_context,
+        )
+        return JSONResponse(
+            content={
+                "data": {
+                    "debug": True,
+                    "raw_llm_output": debug_result.get("raw_output"),
+                    "validation_errors": debug_result.get("validation_errors", []),
+                    "spec": debug_result.get("spec"),
+                    "explanation": debug_result.get("explanation"),
+                }
+            }
+        )
 
     return StreamingResponse(
         run_generation_pipeline(
@@ -55,19 +81,18 @@ async def generate_tool(
 
 @router.post("/{tool_id}/iterate")
 async def iterate_tool(
-    tool_id: str,
+    tool_id: UUID,
     body: IterateRequest,
     db: AsyncSession = Depends(get_db),
     auth_data: tuple = Depends(require_role("editor")),
     _verified: User = Depends(require_verified_email),
 ):
-    from uuid import UUID
     current_user, membership = auth_data
 
     return StreamingResponse(
         run_iteration_pipeline(
             db=db,
-            tool_id=UUID(tool_id),
+            tool_id=tool_id,
             message=body.message,
             user_id=current_user.id,
             team_id=membership.team_id,

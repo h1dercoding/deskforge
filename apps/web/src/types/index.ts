@@ -6,7 +6,7 @@
 // Enums
 export type AuthProvider = 'local' | 'google';
 export type TeamPlan = 'free' | 'starter' | 'pro' | 'enterprise';
-export type TeamRole = 'owner' | 'editor' | 'viewer';
+export type TeamRole = 'owner' | 'editor' | 'submitter' | 'viewer';
 export type ToolVisibility = 'public' | 'private';
 export type ToolStatus = 'draft' | 'active' | 'archived';
 export type DataSourceType = 'csv' | 'google_sheets' | 'postgresql' | 'mysql';
@@ -123,6 +123,8 @@ export interface Tool {
   visibility: ToolVisibility;
   theme: ToolTheme;
   status: ToolStatus;
+  category: string | null;
+  tags: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -175,12 +177,8 @@ export interface ShareLink {
   created_at: string;
 }
 
-// Plan limits
-// NOTE: These are fallback values. The frontend should fetch actual limits
-// from the /billing/usage endpoint when available. Aligns with PRD:
-// - Free: 3 tools, 3 members, 2 datasources
-// - Starter ($49/mo): unlimited tools & members
-// - Pro ($149/mo): unlimited tools, members & datasources
+// Plan limits — aligned with backend plan_enforcer.py (source of truth)
+// -1 means unlimited
 export interface PlanLimits {
   tools: number;    // -1 means unlimited
   members: number;  // -1 means unlimited
@@ -189,7 +187,7 @@ export interface PlanLimits {
 }
 
 export const PLAN_LIMITS: Record<TeamPlan, PlanLimits> = {
-  free: { tools: 3, members: 3, datasources: 2, generations_per_month: 50 },
+  free: { tools: 3, members: 10, datasources: 2, generations_per_month: 50 },
   starter: { tools: -1, members: -1, datasources: 5, generations_per_month: -1 },
   pro: { tools: -1, members: -1, datasources: -1, generations_per_month: -1 },
   enterprise: { tools: -1, members: -1, datasources: -1, generations_per_month: -1 },
@@ -280,4 +278,27 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string;
+}
+
+// Audit Log
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  user_id: string;
+  user_name: string | null;
+  user_email: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+}
+
+// Form Submission
+export interface FormSubmission {
+  id: string;
+  data: Record<string, unknown>;
+  submitted_by: string | null;
+  ip_address: string | null;
+  created_at: string;
 }

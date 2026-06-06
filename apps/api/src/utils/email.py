@@ -160,3 +160,7 @@ async def send_welcome_email(email: str, name: str = "") -> bool:
         subject="Welcome to DeskForge!",
         html=html,
     )
+
+
+# Alias for backward compatibility
+send_team_invite_email = send_invite_email

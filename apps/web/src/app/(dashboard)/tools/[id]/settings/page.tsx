@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ThemeEditor } from "@/components/tools/theme-editor";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { api } from "@/lib/api";
+import { toast } from "@/hooks/useToast";
 import type { Tool } from "@/types";
 
 export default function ToolSettingsPage() {
@@ -38,10 +39,30 @@ export default function ToolSettingsPage() {
     try {
       await api.patch(`/tools/${toolId}`, { name, description, theme });
       await api.patch(`/tools/${toolId}/sharing`, { visibility });
+      toast({ title: "Saved!", description: "Tool settings updated successfully.", variant: "success" });
     } catch (e) {
       console.error("Save failed:", e);
+      toast({ title: "Save failed", description: "Could not save changes.", variant: "destructive" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!tool?.slug) return;
+    const url = `${window.location.origin}/t/${tool.slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Copied!", description: "Share link copied to clipboard.", variant: "success" });
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+      toast({ title: "Copied!", description: "Share link copied to clipboard.", variant: "success" });
     }
   };
 
@@ -82,9 +103,14 @@ export default function ToolSettingsPage() {
             </Button>
           </div>
           {visibility === "public" && tool?.slug && (
-            <p className="mt-3 text-sm text-gray-500">
-              Share URL: <code className="bg-gray-100 px-2 py-1 rounded">/t/{tool.slug}</code>
-            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <code className="bg-gray-100 px-2 py-1 rounded text-sm flex-1 truncate">
+                /t/{tool.slug}
+              </code>
+              <Button variant="outline" size="sm" onClick={handleCopyLink}>
+                Copy Link
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

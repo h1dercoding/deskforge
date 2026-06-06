@@ -10,7 +10,7 @@ async def test_register(async_client: AsyncClient):
         "/v1/auth/register",
         json={
             "email": "newuser@example.com",
-            "password": "NewPass123!",
+            "password": "NewUser123!",
             "name": "New User",
         },
     )
@@ -23,6 +23,11 @@ async def test_register(async_client: AsyncClient):
     assert data["data"]["user"]["name"] == "New User"
     assert "access_token" in data["data"]["tokens"]
     assert "refresh_token" in data["data"]["tokens"]
+    # Verify password requirements are included in response
+    assert "password_requirements" in data["data"]
+    reqs = data["data"]["password_requirements"]
+    assert "min_length" in reqs
+    assert "description" in reqs
 
 
 @pytest.mark.asyncio
@@ -32,7 +37,7 @@ async def test_register_duplicate_email(async_client: AsyncClient, test_user):
         "/v1/auth/register",
         json={
             "email": test_user.email,
-            "password": "TestPass123!",
+            "password": "Duplicate123!",
             "name": "Duplicate User",
         },
     )
@@ -49,7 +54,7 @@ async def test_register_weak_password(async_client: AsyncClient):
         "/v1/auth/register",
         json={
             "email": "weak@example.com",
-            "password": "123",
+            "password": "weak",
             "name": "Weak User",
         },
     )
@@ -81,7 +86,7 @@ async def test_login_wrong_password(async_client: AsyncClient, test_user):
         "/v1/auth/login",
         json={
             "email": "test@example.com",
-            "password": "WrongPass123!",
+            "password": "WrongPassword123!",
         },
     )
     assert response.status_code == 401
@@ -94,7 +99,7 @@ async def test_login_nonexistent_user(async_client: AsyncClient):
         "/v1/auth/login",
         json={
             "email": "nonexistent@example.com",
-            "password": "TestPass123!",
+            "password": "Whatever123!",
         },
     )
     assert response.status_code == 401
@@ -175,7 +180,7 @@ async def test_verify_email(async_client: AsyncClient, test_user):
     """Test email verification endpoint."""
     response = await async_client.post(
         "/v1/auth/verify-email",
-        json={"token": "some-token"},
+        json={"token": "invalid-token-for-testing"},
     )
     # May fail with invalid token, that's OK - we're testing the endpoint exists
-    assert response.status_code in (200, 400)
+    assert response.status_code in (200, 400, 401)

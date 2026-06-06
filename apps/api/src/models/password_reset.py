@@ -1,9 +1,9 @@
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import func,  String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import DateTime
+from sqlalchemy import func,  DateTime
 
 from src.database import Base
 from src.models.base import UUIDMixin
@@ -16,4 +16,4 @@ class PasswordReset(Base, UUIDMixin):
     token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

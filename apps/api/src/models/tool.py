@@ -1,5 +1,5 @@
 from sqlalchemy import String, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional
 from uuid import UUID
@@ -20,10 +20,12 @@ class Tool(Base, UUIDMixin, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    spec: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="private", server_default="'private'")
-    theme: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="'{}'")
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="'draft'")
+    spec: Mapped[dict] = mapped_column(JSON, nullable=False)
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="private", server_default="private")
+    theme: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft")
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=list, server_default="[]")
 
     data_source = relationship("DataSource", lazy="selectin")
     creator = relationship("User", foreign_keys=[created_by], lazy="selectin")

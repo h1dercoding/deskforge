@@ -35,6 +35,7 @@ async def get_google_auth_url() -> str:
         "email",
         "profile",
     ]
+    import urllib.parse
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -43,7 +44,7 @@ async def get_google_auth_url() -> str:
         "access_type": "offline",
         "prompt": "consent",
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    query = urllib.parse.urlencode(params)
     return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
 
 
