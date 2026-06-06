@@ -31,34 +31,6 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Security — JWT
-    JWT_SECRET_KEY: str = ""
-    JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-
-    # Security — Encryption
-    ENCRYPTION_KEY: str = ""
-
-    # Stripe
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_STARTER_PRICE_ID: str = ""
-    STRIPE_PRO_PRICE_ID: str = ""
-    STRIPE_ENTERPRISE_PRICE_ID: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-
-    # Google OAuth
-    GOOGLE_CLIENT_ID: str = ""
-    GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
-
-    # Email
-    SMTP_HOST: str = ""
-    SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
-    EMAIL_FROM: str = "noreply@deskforge.io"
-
     # File upload
     MAX_UPLOAD_SIZE_MB: int = 50
 

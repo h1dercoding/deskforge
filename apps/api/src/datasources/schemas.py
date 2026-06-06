@@ -38,7 +38,7 @@ class DataSourceResponse(BaseModel):
     type: str
     status: str
     row_count: int
-    schema: Optional[dict] = None
+    schema_data: Optional[dict] = Field(default=None, alias="schema")
     created_at: Any
 
     model_config = {"from_attributes": True}

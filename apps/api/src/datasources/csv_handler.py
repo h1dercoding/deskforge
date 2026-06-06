@@ -30,7 +30,7 @@ def detect_column_type(series: pd.Series) -> str:
 
     # Check date
     try:
-        pd.to_datetime(non_null.head(100))
+        pd.to_datetime(non_null.head(100), format="mixed")
         return "date"
     except (ValueError, TypeError):
         pass
